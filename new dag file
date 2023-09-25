@@ -1,0 +1,153 @@
+from airflow import DAG
+from airflow.providers.google.cloud.transfers.gcs_to_local import GCSToLocalFilesystemOperator
+from airflow.providers.google.cloud.transfers.local_to_gcs import LocalToGCSOperator
+from airflow.operators.python_operator import PythonOperator
+from airflow.providers.postgres.operators.postgres import PostgresOperator
+from datetime import datetime
+import pandas as pd
+import os
+
+# Define default_args and DAG
+default_args = {
+    'owner': 'your_name',
+    'depends_on_past': False,
+    'start_date': datetime(2023, 9, 24),
+    'retries': 1,
+}
+
+dag = DAG(
+    'excel_to_postgres_and_gcs',
+    default_args=default_args,
+    schedule_interval=None,  # You can set a schedule interval as needed
+    catchup=False,
+    max_active_runs=1,
+)
+
+# Define a Python function to process the Excel file
+def process_excel_file(**kwargs):
+    input_file_path = '/path/to/input_file.xlsx'  # Replace with your GCS path
+    processed_file_path = '/path/to/processed_file.xlsx'  # Replace with your GCS path
+    pg_conn_id = 'postgres_conn_id'  # Replace with your Postgres connection ID
+
+    # Read Excel file into a DataFrame
+    df = pd.read_excel(input_file_path)
+
+    # Connect to Postgres and insert records if not already present
+    pg_hook = PostgresHook(postgres_conn_id=pg_conn_id)
+    for index, row in df.iterrows():
+        column1_value = row['Column1']
+        column2_value = row['Column2']
+        # Check if the combination exists in Postgres
+        if not pg_hook.run("SELECT 1 FROM your_table WHERE Column1 = %s AND Column2 = %s", (column1_value, column2_value)):
+            # Insert the record into Postgres
+            pg_hook.run("INSERT INTO your_table (Column1, Column2) VALUES (%s, %s)", (column1_value, column2_value))
+            # Append data to the processed Excel file
+            with pd.ExcelWriter(processed_file_path, mode='a', engine='openpyxl') as writer:
+                df.iloc[[index]].to_excel(writer, index=False, header=False)
+    
+    # Delete the processed records from the input Excel file (assuming you have a function for this)
+    delete_processed_records(input_file_path, df)
+
+# Define tasks in the DAG
+gcs_to_local_task = GCSToLocalFilesystemOperator(
+    task_id='gcs_to_local',
+    bucket_name='your_bucket_name',
+    object_name='input_file.xlsx',
+    local_file='/path/to/input_file.xlsx',
+    google_cloud_storage_conn_id='gcs_conn_id',
+    dag=dag,
+)
+
+process_excel_task = PythonOperator(
+    task_id='process_excel',
+    python_callable=process_excel_file,
+    provide_context=True,
+    dag=dag,
+)
+
+local_to_gcs_task = LocalToGCSOperator(
+    task_id='local_to_gcs',
+    src='/path/to/processed_file.xlsx',
+    dst='processed_file.xlsx',
+    bucket_name='your_bucket_name',
+    google_cloud_storage_conn_id='gcs_conn_id',
+    dag=dag,
+)
+
+# Set task dependencies
+gcs_to_local_task >> process_excel_task >> local_to_gcs_task
+
+
+
+
+
+..from airflow import DAG
+from airflow.providers.google.cloud.transfers.gcs_to_gcs import GCSToGCSOperator
+from airflow.operators.python_operator import PythonOperator
+from airflow.providers.postgres.operators.postgres import PostgresOperator
+from datetime import datetime
+import pandas as pd
+import io
+
+# Define default_args and DAG
+default_args = {
+    'owner': 'your_name',
+    'depends_on_past': False,
+    'start_date': datetime(2023, 9, 24),
+    'retries': 1,
+}
+
+dag = DAG(
+    'excel_to_postgres_and_gcs',
+    default_args=default_args,
+    schedule_interval=None,  # You can set a schedule interval as needed
+    catchup=False,
+    max_active_runs=1,
+)
+
+# Define a Python function to process the Excel file
+def process_excel_file(**kwargs):
+    input_file_gcs_path = 'gs://your_bucket/input_file.xlsx'
+    processed_file_gcs_path = 'gs://your_bucket/processed_file.xlsx'
+    pg_conn_id = 'postgres_conn_id'  # Replace with your Postgres connection ID
+
+    # Read Excel file from GCS into a DataFrame
+    df = pd.read_excel(input_file_gcs_path)
+
+    # Connect to Postgres and insert records if not already present
+    pg_hook = PostgresHook(postgres_conn_id=pg_conn_id)
+    for index, row in df.iterrows():
+        column1_value = row['Column1']
+        column2_value = row['Column2']
+        # Check if the combination exists in Postgres
+        if not pg_hook.run("SELECT 1 FROM your_table WHERE Column1 = %s AND Column2 = %s", (column1_value, column2_value)):
+            # Insert the record into Postgres
+            pg_hook.run("INSERT INTO your_table (Column1, Column2) VALUES (%s, %s)", (column1_value, column2_value))
+            # Append data to the processed Excel file
+            with pd.ExcelWriter(processed_file_gcs_path, engine='openpyxl', mode='a', path='') as writer:
+                df.iloc[[index]].to_excel(writer, index=False, header=False)
+
+    # Delete the processed records from the input Excel file (assuming you have a function for this)
+    # Be cautious about deleting from GCS; consider archiving or moving instead
+
+# Define tasks in the DAG
+process_excel_task = PythonOperator(
+    task_id='process_excel',
+    python_callable=process_excel_file,
+    provide_context=True,
+    dag=dag,
+)
+
+gcs_to_gcs_task = GCSToGCSOperator(
+    task_id='gcs_to_gcs',
+    source_bucket_name='your_bucket',
+    source_object='processed_file.xlsx',
+    destination_bucket_name='your_bucket',
+    destination_object='processed_file.xlsx',
+    move_object=True,  # To delete the source file after moving, set this to True
+    google_cloud_storage_conn_id='gcs_conn_id',
+    dag=dag,
+)
+
+# Set task dependencies
+process_excel_task >> gcs_to_gcs_task
