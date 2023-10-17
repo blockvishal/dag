@@ -1,0 +1,21 @@
+def generate_sql_update(row):
+    if pd.isna(row['rec_typ_cd']) or row['rec_typ_cd':'src_key_col'].count() == 0:
+        return ''
+
+    updates = []
+    for col in row.index[1:]:
+        if pd.notna(row[col]) and row[col] != '':
+            if isinstance(row[col], str):
+                updates.append(f"""{col} = '{row[col].replace("'","''")}'""")
+            else:
+                updates.append(f"{col} = {row[col]}")
+
+
+    if updates:
+        return f"UPDATE edp_data_quality_val_rule SET {', '.join(updates)}, last_update_date = CURRENT_TIMESTAMP WHERE rec_typ_cd = {row['rec_typ_cd']}"
+    else:
+        return ''
+
+
+# Apply the custom function to each row in the DataFrame
+df['SQL_Update'] = df.apply(generate_sql_update, axis=1)
