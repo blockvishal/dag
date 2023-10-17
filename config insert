@@ -1,0 +1,5 @@
+for index, row in df.iterrows():
+    formula = f'''INSERT INTO EDP_DATA_QUALITY_VAL_RULE VALUES(nextval('config_seq'),4,{row['rec_typ_cd']},'{row['src_sql_exp'].replace("'", "''")}','{row['tgt_sql_exp'].replace("'", "''")}',{row['rec_thr_val']},CURRENT_TIMESTAMP,'{row['Contributor_Name']}','TRUE','{row['src_sch_nm']}.{row['src_tbl_nm']}','{row['tgt_sch_nm']}.{row['tgt_tbl_nm']}','{row['src_key_col']}','{row['tgt_key_col']}','{row['src_condition_exp'].replace("'", "''")}','{row['tgt_condition_exp'].replace("'", "''")}',{row['col_flag']}) RETURNING config_id,asset_id;'''
+    print(formula)
+
+    df.at[index, 'new_insert'] = formula
